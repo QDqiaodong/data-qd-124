@@ -1,0 +1,11 @@
+{
+  "k": 2,
+  "max_suppressed": 1,
+  "records": [
+    {"id": "id_alpha", "age": 21, "postal": "11111", "category": "blue"},
+    {"id": "id_beta", "age": 22, "postal": "11122", "category": "green"},
+    {"id": "id_papa", "age": 41, "postal": "22211", "category": "red"},
+    {"id": "id_qube", "age": 42, "postal": "22222", "category": "red"},
+    {"id": "id_zulu", "age": 70, "postal": "99999", "category": "yellow"}
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "k": 2,
+  "max_suppressed": 2,
+  "records": [
+    {"id": "A", "age": 21, "postal": "11111", "category": "blue"},
+    {"id": "B", "age": 22, "postal": "11122", "category": "green"},
+    {"id": "C", "age": 23, "postal": "11133", "category": "blue"},
+    {"id": "D", "age": 41, "postal": "22211", "category": "red"},
+    {"id": "E", "age": 42, "postal": "22222", "category": "red"},
+    {"id": "F", "age": 43, "postal": "22233", "category": "green"}
+  ]
+}

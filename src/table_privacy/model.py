@@ -4,7 +4,7 @@ import re
 from .common import require,ident,number,rows
 from .generalize import candidate
 
-def analyze(data):
+def parse_input(data):
     require(data,'k max_suppressed records');k=number(data['k'],2,10000);budget=number(data['max_suppressed'],0,10000)
     records=[];seen=set()
     for r in rows(data['records'],10000):
@@ -13,6 +13,10 @@ def analyze(data):
         if not isinstance(r['postal'],str) or not re.fullmatch('[0-9]{5}',r['postal']):raise ValueError('postal must be exactly five ASCII digits')
         seen.add(rid);records.append(r)
     if not records:raise ValueError('records cannot be empty')
+    return k,budget,records
+
+def analyze(data):
+    k,budget,records=parse_input(data)
     candidates=[];feasible=[]
     for a,p in product(range(3),repeat=2):
         groups,suppressed,loss=candidate(records,a,p,k)
