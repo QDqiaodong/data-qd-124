@@ -1,0 +1,36 @@
+{
+  "k": 2,
+  "max_suppressed": 1,
+  "records": [
+    {
+      "id": "R1",
+      "age": 21,
+      "postal": "12345",
+      "category": "blue"
+    },
+    {
+      "id": "R2",
+      "age": 24,
+      "postal": "12399",
+      "category": "green"
+    },
+    {
+      "id": "R3",
+      "age": 42,
+      "postal": "98765",
+      "category": "blue"
+    },
+    {
+      "id": "R4",
+      "age": 45,
+      "postal": "98712",
+      "category": "blue"
+    },
+    {
+      "id": "R5",
+      "age": 67,
+      "postal": "55555",
+      "category": "red"
+    }
+  ]
+}
