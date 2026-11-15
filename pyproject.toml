@@ -11,5 +11,6 @@ dependencies = []
 table-privacy = "table_privacy.cli:main"
 table-privacy-series = "table_privacy.series_cli:main"
 table-privacy-linkage = "table_privacy.linkage_cli:main"
+table-privacy-erase = "table_privacy.erase_cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -1,6 +1,6 @@
 """Strict local JSON contract and atomic report publication."""
 from pathlib import Path
-import hashlib, json, os, tempfile
+import hashlib, json, os, tempfile, time
 
 def require(obj,keys):
     if not isinstance(obj,dict) or set(obj)!=set(keys.split()):raise ValueError('expected object fields: '+keys)
@@ -41,3 +41,66 @@ def save(path,report):
         os.replace(temp,dest)
     finally:
         if temp and os.path.exists(temp):os.unlink(temp)
+
+# ---------------------------------------------------------------------------
+# Deterministic barriers used by the concurrency acceptance tests.  These are
+# inert in production: the environment variable is only set inside test
+# subprocesses.  A named gate is a directory containing three sentinel files;
+# ``gate_wait`` blocks until the gate is released (or the deadline expires) and
+# ``gate_release`` clears it.  Coordination is driven solely by file events,
+# never by wall-clock guessing between concurrent operations.
+# ---------------------------------------------------------------------------
+
+_GATE_READY = 'ready'
+_GATE_WAIT = 'wait'
+_GATE_RELEASED = 'released'
+
+
+def gate_root():
+    """Return the test barrier root, or None outside a test subprocess."""
+    root = os.environ.get('TABLE_PRIVACY_GATE_ROOT')
+    return Path(root) if root else None
+
+
+def gate_arm(name):
+    """Create the named gate in the waiting state. No-op outside tests."""
+    root = gate_root()
+    if root is None:
+        return
+    gate = root / name
+    gate.mkdir(parents=True, exist_ok=True)
+    for sentinel in (_GATE_READY, _GATE_WAIT, _GATE_RELEASED):
+        try:
+            (gate / sentinel).unlink()
+        except FileNotFoundError:
+            pass
+    (gate / _GATE_READY).touch()
+    (gate / _GATE_WAIT).touch()
+
+
+def gate_wait(name, timeout=60.0):
+    """Block at the named gate until ``gate_release`` is called elsewhere.
+
+    No-op when no barrier root is configured (production).  Returns once the
+    released sentinel appears; raises TimeoutError at the deadline so a broken
+    test fails deterministically instead of hanging.
+    """
+    root = gate_root()
+    if root is None:
+        return
+    gate = root / name
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if (gate / _GATE_RELEASED).exists():
+            return
+        time.sleep(0.01)
+    raise TimeoutError('gate %r was not released within %.0fs' % (name, timeout))
+
+
+def gate_release(name):
+    """Release every waiter blocked on the named gate."""
+    root = gate_root()
+    if root is None:
+        return
+    gate = root / name
+    (gate / _GATE_RELEASED).touch()

@@ -121,7 +121,6 @@ table-privacy-series \
 
 ## 非目标与运维假设
 
-- 不处理并发写者；`busy_timeout` 只覆盖短暂锁竞争，并发发布不在承诺范围内。
 - 不加密台账、不管理文件权限；私有目录的访问控制由操作者负责。
 - 恢复保证覆盖进程在任一步骤被杀死/退出（测试用 `os._exit` 模拟 SIGKILL）：
   报告文件写入前做了 `fsync` 并经 `os.replace` 原子替换。未额外对父目录做
@@ -130,3 +129,19 @@ table-privacy-series \
 - 测试钩子 `TABLE_PRIVACY_CRASH_HOOK=after_db_commit|after_file_replace` 会以
   `os._exit(99)` 硬退出模拟 SIGKILL/断电，仅供测试，生产环境不要设置。
 - 运行时仅用 Python 标准库（含 `sqlite3`）。
+
+## v4 迁移：主体擦除与绑定（见 [privacy_erase.md](privacy_erase.md)）
+
+- 台账新增 `erase_tasks` 与 `tombstones` 两张表，由 `table-privacy-erase`
+  管理；墓碑只存 id 的 SHA256 摘要，不存明文。旧台账文件打开时自动补建，
+  既有批次与历史行不受影响。
+- 首次擦除会把本台账与一个 linkage audit 库**一对一持久绑定**。绑定之后：
+  - `table-privacy-series` 与直接使用 `series.Store` 的写入口都必须传入
+    `--audit-db`（构造参数 `audit_path`），省略或换库即 fail-closed（退出 2）；
+  - 有 `pending` 擦除任务时新批次一律拒绝；任务 `done` 后无关主体恢复写入；
+  - 含墓碑 id 的新批次与旧批次重放永久拒绝（退出 2），准入在写事务内复查，
+    不依赖 CLI 入口检查。
+- **未绑定台账的旧调用方式完全兼容**，无需任何参数变更。
+- 擦除只删除私有 `history` 行并立墓碑；`batches`、版本序列、台账内报告字节
+  与已落盘公开报告均保持原样（擦除前后 SHA256 不变）。全部身份被擦后
+  下一批次的 `version` 仍在 `MAX(version)+1` 上连续。

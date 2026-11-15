@@ -119,7 +119,26 @@ stdout 输出一行紧凑 JSON，仅含聚合信息：`run_id`、双源 SHA、�
 
 ## 非目标与运维假设
 
-- 不读取 v1 私有源表、不读取 series 台账；不做跨报告、跨轮次关联。
+- 不读取 v1 私有源表；不做跨报告、跨轮次关联（与 series 库的关系仅限
+  [privacy_erase.md](privacy_erase.md) 定义的绑定与擦除准入）。
 - 不加密审计库、不管理文件权限；私有目录访问控制由操作者负责。
-- 单写者假设；`busy_timeout` 只覆盖短暂锁竞争，并发写入不在承诺范围内。
 - 运行时仅用 Python 标准库（含 `sqlite3`）。
+
+## v4 迁移：主体摘要索引、绑定与擦除（见 [privacy_erase.md](privacy_erase.md)）
+
+- 审计库新增 `run_identity_index`（每个 run 全部输入主体的 SHA256 摘要索引）
+  与 `erase_progress`（擦除恢复标记）两张表；旧库打开时自动补建，既有 run
+  不受影响。
+- 绑定后的每个新 run（**含 inconsistent run，也含不属于 Hall 证人集合的输入
+  身份**）都在同一事务内原子写入完整摘要索引；没有完整索引的历史 run 在首次
+  擦除时因“无法证明无关”被保守清除。
+- 首次擦除会把本审计库与一个 series 台账**一对一持久绑定**。绑定之后：
+  - `table-privacy-linkage` 与直接使用 `linkage.AuditStore` 的写入口都必须
+    传入 `--ledger`（构造参数 `ledger_path`），省略或换库即 fail-closed；
+  - 每次 `persist` 在写事务内通过只读连接复查绑定台账的 pending 任务与墓碑，
+    在途写者即使已完成求解，只要擦除先提交即被拒绝；
+  - 命中目标摘要的 run 连同 slots、edges、identity_outcomes、
+    identity_possible_categories、hall_witnesses、hall_witness_identities、
+    hall_witness_slots 与索引行整体删除；完整索引且不命中的 run 逐字段保留。
+- **未绑定审计库的旧调用方式完全兼容**，无需任何参数变更。
+- 擦除不清除 SQLite 空闲页、WAL 残留或备份；物理销毁需操作者另行处理。

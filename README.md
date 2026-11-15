@@ -66,6 +66,34 @@ python3 -m venv .venv
 前导零）与表结构见 [关联风险审计设计](docs/linkage_audit.md)，自制样例在
 `fixtures/linkage/`（生成脚本 `scripts/build_linkage_fixtures.py`）。
 
+### 跨库主体擦除（v4）
+
+第四个入口 `table-privacy-erase` 在 series 台账与 linkage 审计库之间执行私有数据的
+主体逻辑擦除。给定 `--ledger`、`--audit-db`、`--request-id` 与 `--ids`（非空字符串
+JSON 数组，忽略排列与重复），输出不含明文 id 的任务状态与删除计数；`--resume`
+无需再次提供 id 即可按原 request-id 续办，`--status` 只查询。同 request-id 同集合
+幂等，换集合拒绝。任务与墓碑只存 id 的 UTF-8 字节 SHA256，不保存明文或可逆编码，
+也不把摘要宣称为匿名保证；不承诺清除 SQLite 空闲页、备份或外部原始输入。
+
+```sh
+.venv/bin/table-privacy-erase \
+  --ledger run/private/ledger.sqlite \
+  --audit-db run/private/linkage_audit.sqlite \
+  --request-id termination-001 --ids ids.json
+```
+
+首次使用把两库持久一对一绑定；已绑定库的写入口省略伙伴参数或换用另一库一律
+fail-closed（CLI 与 Python 写 API 同路径，无法绕过），未绑定库旧入口兼容。
+series 侧删除目标全部历史行并永久拒绝含墓碑 id 的新批次与旧批次重放，其他 id 的
+历史、批次号与版本序列保留，群体擦空后下一版本仍连续；公开报告与台账报告字节
+擦除前后 SHA 不变。audit 侧每个绑定后新 run 原子保存全部输入主体的摘要索引
+（含 inconsistent 且非 Hall 证人的身份），命中目标即删除整个 run 及其槽、边、
+结论、类别与 Hall 派生记录；绑定前无完整索引的旧 run 首次擦除时保守清除，
+完整索引且不命中的 run 逐字段保留。pending 期间两库均拒绝新提交，series 墓碑
+控制 linkage 的真实提交边界；并发竞争用真实子进程与文件屏障验收，默认 journal
+与 WAL 各跑一遍。设计、提交顺序、恢复判据、锁/快照边界与方案代价见
+[擦除设计](docs/privacy_erase.md)。
+
 输入JSON最多1 GiB、records最多一百万行、max_suppressed最多一百万、k最多一万；拒绝重复键、
 非有限数值和未定义字段；源字节SHA256随结果保留。单次入口为流式架构：增量解析（records可
 先于参数）、SQLite磁盘中间层、流式报告，256 MiB地址空间内可处理源与报告都超过内存的输入，
@@ -79,9 +107,11 @@ python3 -m venv .venv
 
 src/table_privacy/model.py 为业务模型（内存参考实现与共享输入校验），generalize.py 构建
 泛化桶；streamjson.py 增量解析契约输入，engine.py 以SQLite磁盘中间层与流式报告执行单次
-发布，cli.py 为单次入口；series.py 实现跨轮联合分组、SQLite台账与持久发布协议，
+发布，cli.py 为单次入口；series.py 实现跨轮联合分组、SQLite台账、墓碑准入与持久发布协议，
 series_cli.py 为连续发布入口；linkage.py 实现公开报告×辅助身份的容量槽匹配、Hall
-证据与审计库写入，linkage_cli.py 为关联风险审计入口；common.py 提供受限JSON及报告发布。
+证据、摘要索引与审计库写入，linkage_cli.py 为关联风险审计入口；erase.py 实现两库绑定、
+三阶段擦除状态机与恢复，erase_cli.py 为擦除入口；common.py 提供受限JSON、报告发布与
+测试屏障原语。
 fixtures 为明确自制样例，代码与样例采用MIT许可。
 
 ## 业务与样例结果

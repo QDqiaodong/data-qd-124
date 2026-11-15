@@ -41,7 +41,9 @@ import sys
 from collections import Counter, deque
 from pathlib import Path
 
-from .common import ident
+from urllib.parse import quote
+
+from .common import gate_wait, ident
 
 # Keep recursive Dinic DFS safely below the limit for the supported graph size
 # (at most 2000 identities + 2000 slots + source/sink).
@@ -50,6 +52,13 @@ sys.setrecursionlimit(50000)
 AUDIT_SCHEMA_VERSION = 1
 MAX_IDENTITIES = 2000
 MAX_EDGES = 20000
+
+BINDING_ROLE = 'linkage_audit'
+_BINDING_TOKEN_KEY = 'privacy_binding_token'
+_BINDING_ROLE_KEY = 'privacy_binding_role'
+_BINDING_PEER_KEY = 'privacy_binding_peer_path'
+_SCHEMA_VERSION_KEY = 'audit_schema_version'
+_SQL_VAR_CHUNK = 300
 
 _EXACT_AGE_RE = re.compile(r'\d{1,3}$')
 _AGE_RANGE_RE = re.compile(r'(\d{1,3})-(\d{1,3})$')
@@ -137,7 +146,41 @@ CREATE TABLE IF NOT EXISTS hall_witness_slots (
     capacity INTEGER NOT NULL,
     PRIMARY KEY (run_id, slot_index)
 );
+-- Digest-only subject index of every input identity, written atomically with
+-- the run itself.  It lets an erase request prove that a run is unrelated
+-- without ever storing a reversible encoding of an id.  Runs created before
+-- binding have no rows here and are therefore treated conservatively as
+-- "cannot be proven unrelated" by the first erase.
+CREATE TABLE IF NOT EXISTS run_identity_index (
+    run_id INTEGER NOT NULL,
+    identity_index INTEGER NOT NULL,
+    id_digest TEXT NOT NULL,
+    PRIMARY KEY (run_id, identity_index)
+);
+CREATE INDEX IF NOT EXISTS idx_run_identity_digest
+    ON run_identity_index (id_digest);
+-- One row per completed erase phase for this audit database; its presence is
+-- the durable resume marker.  No plaintext id is stored, only the ledger
+-- request id and aggregate deletion counts.
+CREATE TABLE IF NOT EXISTS erase_progress (
+    request_id TEXT PRIMARY KEY,
+    runs_deleted INTEGER NOT NULL,
+    index_deleted INTEGER NOT NULL,
+    rows_deleted INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
 """
+
+
+def id_digest(rid):
+    """SHA256 over the exact UTF-8 bytes of the original id."""
+    import hashlib
+    return hashlib.sha256(rid.encode('utf-8')).hexdigest()
+
+
+def _chunks(seq, size):
+    for start in range(0, len(seq), size):
+        yield seq[start:start + size]
 
 
 class LinkageError(Exception):
@@ -596,9 +639,16 @@ def analyze_linkage(report_data, helper_data, report_sha256, helpers_sha256):
 # --------------------------------------------------------------------------- #
 
 class AuditStore:
-    """Private SQLite audit database (single writer); never published."""
+    """Private SQLite audit database.
 
-    def __init__(self, path):
+    Once bound to a series ledger by :mod:`table_privacy.erase`, every writer
+    entry point (CLI or this Python API) must supply the bound ledger path and
+    passes a transaction-local admission check against the ledger's pending
+    erase tasks and tombstones.  An audit database that has never been bound
+    keeps the original single-writer behavior.
+    """
+
+    def __init__(self, path, ledger_path=None, journal_mode=None):
         self.path = Path(path)
         if self.path.is_symlink():
             raise LinkageError('audit database path cannot be a symlink')
@@ -607,14 +657,68 @@ class AuditStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(self.path), timeout=5)
         self.conn.execute('PRAGMA busy_timeout=5000')
+        if journal_mode:
+            if journal_mode not in ('delete', 'wal'):
+                raise LinkageError("journal_mode must be 'delete' or 'wal'")
+            self.conn.execute('PRAGMA journal_mode=%s' % journal_mode)
+        self.journal_mode = journal_mode or 'delete'
         existing = {row[0] for row in
                     self.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if existing and 'runs' not in existing:
             raise LinkageError('database is not a linkage audit store: ' + str(self.path))
         self.conn.executescript(SCHEMA_SQL)
         self.conn.execute('INSERT OR IGNORE INTO meta(key,value) VALUES(?,?)',
-                          ('audit_schema_version', str(AUDIT_SCHEMA_VERSION)))
+                          (_SCHEMA_VERSION_KEY, str(AUDIT_SCHEMA_VERSION)))
         self.conn.commit()
+        self.binding = self._load_binding()
+        self.ledger_path = Path(ledger_path).resolve() if ledger_path is not None else None
+        self._verify_binding('audit database')
+
+    def _load_binding(self):
+        rows = dict(self.conn.execute(
+            'SELECT key,value FROM meta WHERE key IN (?,?,?)',
+            (_BINDING_TOKEN_KEY, _BINDING_ROLE_KEY, _BINDING_PEER_KEY)).fetchall())
+        if not rows:
+            return None
+        if set(rows) != {_BINDING_TOKEN_KEY, _BINDING_ROLE_KEY,
+                         _BINDING_PEER_KEY}:
+            raise LinkageError('audit database binding metadata is incomplete')
+        if rows[_BINDING_ROLE_KEY] != BINDING_ROLE:
+            raise LinkageError('audit database binding role mismatch')
+        return {'token': rows[_BINDING_TOKEN_KEY],
+                'peer_path': rows[_BINDING_PEER_KEY]}
+
+    def _verify_binding(self, what):
+        if self.binding is None:
+            return
+        if self.ledger_path is None:
+            raise LinkageError(
+                'this %s is bound to a series ledger; --ledger is required '
+                'for every writer' % what)
+        if str(self.ledger_path) != self.binding['peer_path']:
+            raise LinkageError(
+                'bound audit database rejects a different ledger; expected %s'
+                % self.binding['peer_path'])
+
+    def binding_token(self):
+        return None if self.binding is None else self.binding['token']
+
+    def install_binding(self, token, ledger_path):
+        if self.binding is not None:
+            raise LinkageError('audit database is already bound to a series ledger')
+        peer = str(Path(ledger_path).resolve())
+        try:
+            self.conn.execute('BEGIN IMMEDIATE')
+            self.conn.executemany(
+                'INSERT INTO meta(key,value) VALUES(?,?)',
+                [(_BINDING_TOKEN_KEY, token),
+                 (_BINDING_ROLE_KEY, BINDING_ROLE),
+                 (_BINDING_PEER_KEY, peer)])
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
+        self.binding = {'token': token, 'peer_path': peer}
 
     def close(self):
         self.conn.close()
@@ -625,10 +729,68 @@ class AuditStore:
     def __exit__(self, *exc):
         self.close()
 
+    # ------------------------------------------------------------------ #
+    # Cross-store admission, read from the bound ledger inside the write
+    # transaction so the check and the commit share one serializable point.
+    # ------------------------------------------------------------------ #
+
+    def _open_ledger_gate(self):
+        uri = 'file:%s?mode=ro' % quote(str(self.ledger_path))
+        gate = sqlite3.connect(uri, uri=True, timeout=5)
+        gate.execute('PRAGMA busy_timeout=5000')
+        # In WAL mode a separate read connection sees the latest committed
+        # snapshot; in rollback-journal mode the read is consistent while no
+        # write transaction is active on the ledger.
+        return gate
+
+    def _txn_admission(self, gate, rid_digests):
+        pending = gate.execute(
+            "SELECT 1 FROM erase_tasks WHERE state='pending' LIMIT 1").fetchone()
+        if pending is not None:
+            raise LinkageError(
+                'the bound ledger has a pending erase; new runs are rejected '
+                'until the erase is resumed to done')
+        for chunk in _chunks(sorted(set(rid_digests)), _SQL_VAR_CHUNK):
+            placeholders = ','.join('?' for _ in chunk)
+            hit = gate.execute(
+                'SELECT 1 FROM tombstones WHERE id_digest IN (%s) LIMIT 1'
+                % placeholders, chunk).fetchone()
+            if hit is not None:
+                raise LinkageError(
+                    'run contains an identity erased by a previous request; '
+                    'tombstoned identities are permanently rejected')
+
+    def erase_progress(self, request_id):
+        row = self.conn.execute(
+            'SELECT request_id,runs_deleted,index_deleted,rows_deleted '
+            'FROM erase_progress WHERE request_id=?', (request_id,)).fetchone()
+        if row is None:
+            return None
+        return {'request_id': row[0], 'runs_deleted': row[1],
+                'index_deleted': row[2], 'rows_deleted': row[3]}
+
     def persist(self, result):
-        """Append one fully solved run and all its evidence in one transaction."""
+        """Append one fully solved run and all its evidence in one transaction.
+
+        For a bound audit store the ledger's pending/tombstone state is read
+        after the write lock is taken, so an eraser that commits first makes
+        this commit fail even when the solve ran against an older snapshot.
+        The expensive solve happens entirely before this method runs, and the
+        test barrier below is reached *before* ``BEGIN IMMEDIATE`` so waiting
+        work never holds an exclusive lock (the writer and one eraser can
+        therefore compete without a lock timeout deciding the outcome).
+        """
+        rid_digests = [id_digest(identity['id'])
+                       for identity in result['identities']]
+        self._verify_binding('audit database')
+        # Pause after the full solve but before any lock is taken.
+        gate_wait('linkage_pre_commit')
+        gate = None
         try:
             self.conn.execute('BEGIN IMMEDIATE')
+            if self.binding is not None:
+                gate = self._open_ledger_gate()
+                self._txn_admission(gate, rid_digests)
             cur = self.conn.execute(
                 'INSERT INTO runs(report_sha256,helpers_sha256,status,identity_count,'
                 'slot_count,edge_count,total_capacity,maxflow) VALUES(?,?,?,?,?,?,?,?)',
@@ -678,8 +840,94 @@ class AuditStore:
                     'VALUES(?,?,?)',
                     [(run_id, j, result['slots'][j]['capacity'])
                      for j in hall['neighbor_slots']])
+            # The full digest index of every input identity is part of the same
+            # atomic transaction: a run is either fully indexed or absent.
+            self.conn.executemany(
+                'INSERT INTO run_identity_index(run_id,identity_index,id_digest) '
+                'VALUES(?,?,?)',
+                [(run_id, identity['index'], id_digest(identity['id']))
+                 for identity in result['identities']])
             self.conn.commit()
         except Exception:
             self.conn.rollback()
             raise
+        finally:
+            if gate is not None:
+                gate.close()
         return run_id
+
+    # ------------------------------------------------------------------ #
+    # Erase phase 2: conservative purge, one atomic transaction
+    # ------------------------------------------------------------------ #
+
+    def _delete_runs(self, run_ids):
+        """Delete every table row belonging to the given runs; return counts."""
+        if not run_ids:
+            return 0, 0
+        index_deleted = 0
+        rows_deleted = 0
+        child_tables = (
+            'hall_witness_slots', 'hall_witness_identities', 'hall_witnesses',
+            'identity_possible_categories', 'identity_outcomes', 'edges',
+            'slots', 'run_identity_index')
+        for chunk in _chunks(sorted(run_ids), _SQL_VAR_CHUNK):
+            placeholders = ','.join('?' for _ in chunk)
+            for table in child_tables:
+                cur = self.conn.execute(
+                    'DELETE FROM %s WHERE run_id IN (%s)' % (table, placeholders),
+                    chunk)
+                rows_deleted += cur.rowcount
+                if table == 'run_identity_index':
+                    index_deleted = cur.rowcount
+            cur = self.conn.execute(
+                'DELETE FROM runs WHERE run_id IN (%s)' % placeholders, chunk)
+            rows_deleted += cur.rowcount
+        return index_deleted, rows_deleted
+
+    def purge_for_erase(self, request_id, target_digests):
+        """Atomically remove every run that contains or cannot exclude a target.
+
+        * pre-binding runs without a complete identity index cannot be proven
+          unrelated, so they are conservatively deleted on the first erase;
+        * indexed runs whose digest index hits any target are deleted with
+          every slot, edge, conclusion, category and Hall-derived record;
+        * fully indexed runs with no digest hit are retained field by field.
+
+        The durable resume marker is written in the same transaction.  A
+        resumed request returns the stored counts and deletes nothing again,
+        so runs created after the original completion can never be touched.
+        """
+        already = self.erase_progress(request_id)
+        if already is not None:
+            return already
+        try:
+            self.conn.execute('BEGIN IMMEDIATE')
+            all_runs = {row[0] for row in self.conn.execute(
+                'SELECT run_id FROM runs')}
+            # A run counts as fully indexed only when its index covers every
+            # input identity recorded on the run row.
+            complete = {row[0] for row in self.conn.execute(
+                'SELECT i.run_id FROM run_identity_index i '
+                'JOIN runs r ON r.run_id=i.run_id '
+                'GROUP BY i.run_id HAVING COUNT(*)=r.identity_count')}
+            legacy_runs = all_runs - complete
+            matched = set()
+            for chunk in _chunks(sorted(target_digests), _SQL_VAR_CHUNK):
+                placeholders = ','.join('?' for _ in chunk)
+                matched.update(row[0] for row in self.conn.execute(
+                    'SELECT DISTINCT run_id FROM run_identity_index '
+                    'WHERE id_digest IN (%s)' % placeholders, chunk))
+            # Indexed-but-incomplete runs are legacy too: the index cannot
+            # prove the missing identities are unrelated.
+            doomed = legacy_runs | matched
+            index_deleted, rows_deleted = self._delete_runs(doomed)
+            self.conn.execute(
+                'INSERT INTO erase_progress(request_id,runs_deleted,'
+                'index_deleted,rows_deleted) VALUES(?,?,?,?)',
+                (request_id, len(doomed), index_deleted, rows_deleted))
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
+        return {'request_id': request_id, 'runs_deleted': len(doomed),
+                'index_deleted': index_deleted, 'rows_deleted': rows_deleted}
