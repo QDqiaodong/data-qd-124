@@ -3,7 +3,7 @@ requires = ["setuptools==80.9.0", "wheel==0.45.1"]
 build-backend = "setuptools.build_meta"
 [project]
 name = "data-qd-124"
-version = "0.2.0"
+version = "0.3.0"
 description = "Global recoding search for k-anonymous synthetic tables"
 requires-python = ">=3.11"
 dependencies = []

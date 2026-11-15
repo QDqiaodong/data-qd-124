@@ -4,10 +4,19 @@ import re
 from .common import require,ident,number,rows
 from .generalize import candidate
 
-def parse_input(data):
-    require(data,'k max_suppressed records');k=number(data['k'],2,10000);budget=number(data['max_suppressed'],0,10000)
+# Single-shot contract limits (v1.1): the streaming engine in engine.py accepts
+# sources up to 1 GiB with at most MAX_ROWS records.  The serial-release entry
+# point keeps the historical limits (8 MB / 10000 rows / budget 10000) by
+# calling parse_input with its own defaults, so it is unaffected.
+MAX_ROWS=1_000_000
+MAX_BUDGET=1_000_000
+MAX_K=10000
+PRIVACY_SCOPE='k-anonymity applies only to the selected age/postal quasi-identifiers in this release; this is not a privacy guarantee.'
+
+def parse_input(data,row_limit=10000,budget_limit=10000):
+    require(data,'k max_suppressed records');k=number(data['k'],2,MAX_K);budget=number(data['max_suppressed'],0,budget_limit)
     records=[];seen=set()
-    for r in rows(data['records'],10000):
+    for r in rows(data['records'],row_limit):
         require(r,'id age postal category');rid=ident(r['id']);number(r['age'],0,120);ident(r['category'])
         if rid in seen:raise ValueError('duplicate source row ID')
         if not isinstance(r['postal'],str) or not re.fullmatch('[0-9]{5}',r['postal']):raise ValueError('postal must be exactly five ASCII digits')
@@ -16,7 +25,13 @@ def parse_input(data):
     return k,budget,records
 
 def analyze(data):
-    k,budget,records=parse_input(data)
+    """In-memory reference implementation of the single-shot contract.
+
+    The CLI streams large sources through engine.py instead; both must agree
+    field for field (the measurement harness compares them).  This function is
+    kept for small inputs, tests and the serial-release consistency checks.
+    """
+    k,budget,records=parse_input(data,row_limit=MAX_ROWS,budget_limit=MAX_BUDGET)
     candidates=[];feasible=[]
     for a,p in product(range(3),repeat=2):
         groups,suppressed,loss=candidate(records,a,p,k)
@@ -33,4 +48,4 @@ def analyze(data):
             released.extend({'age':age,'postal':postal,'category':category} for _ in range(count))
     return {'feasible':True,'input_rows':len(records),'k':k,'selected':{'age_level':a,'postal_level':p,'ordinal_generalization_cost':str(loss)},
             'suppressed_rows':suppressed,'released_count':len(released),'released_rows':released,'equivalence_classes':classes,'candidates':candidates,
-            'privacy_scope':'k-anonymity applies only to the selected age/postal quasi-identifiers in this release; this is not a privacy guarantee.'}
+            'privacy_scope':PRIVACY_SCOPE}

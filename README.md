@@ -41,15 +41,21 @@ python3 -m venv .venv
 本地已有wheel时，安装构建工具可加 `--no-index --find-links <公共wheel缓存目录>`。
 修改源码后重新安装。本仓不共享其他仓环境，不依赖Docker、外部账号或持续服务。
 
-输入JSON最多8MB，拒绝重复键、非有限数值和未定义字段；源字节SHA256随结果保留。
-输出是可独立读取的JSON；成功后原子替换，输入/计算失败退出2并保留旧报告。
+输入JSON最多1 GiB、records最多一百万行、max_suppressed最多一百万、k最多一万；拒绝重复键、
+非有限数值和未定义字段；源字节SHA256随结果保留。单次入口为流式架构：增量解析（records可
+先于参数）、SQLite磁盘中间层、流式报告，256 MiB地址空间内可处理源与报告都超过内存的输入，
+结果与内存参考实现model.analyze逐字段一致（见 [流式设计](docs/streaming.md)，测量脚本
+`scripts/measure_linux.sh`）。连续发布入口限额不变（8MB/一万行/预算一万）。
+输出是可独立读取的JSON；成功后原子替换，输入/计算失败退出2并保留旧报告，stdout不出现半份
+报告，私有临时数据随进程清理。
 输入和输出不得相同，输出符号链接拒绝。单次入口面向独立批次，不承诺并发发布或断电恢复；
 断电可恢复的连续发布由上文 `table-privacy-series` 的台账协议承担（仍限定单写者）。
 同输入重跑不累加。测试使用临时目录，运行产物在忽略的run/。
 
-src/table_privacy/model.py 为业务模型（单次分析与共享输入校验），generalize.py 构建
-泛化桶；series.py 实现跨轮联合分组、SQLite台账与持久发布协议，series_cli.py 为连续发布
-入口，cli.py 保持原单次数据链路；common.py 提供受限JSON及报告发布。
+src/table_privacy/model.py 为业务模型（内存参考实现与共享输入校验），generalize.py 构建
+泛化桶；streamjson.py 增量解析契约输入，engine.py 以SQLite磁盘中间层与流式报告执行单次
+发布，cli.py 为单次入口；series.py 实现跨轮联合分组、SQLite台账与持久发布协议，
+series_cli.py 为连续发布入口；common.py 提供受限JSON及报告发布。
 fixtures 为明确自制样例，代码与样例采用MIT许可。
 
 ## 业务与样例结果

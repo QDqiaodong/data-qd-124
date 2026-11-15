@@ -1,7 +1,7 @@
 # Global recoding for a synthetic table v1
 
 为离线数据发布研究者评估一个明确的k-anonymity泛化/抑制策略。仅处理原创合成表格，不接真实个人数据。
-输入k=2..10000、max_suppressed=0..10000、records<=10000非空；每行id/age/postal/category。
+输入k=2..10000、max_suppressed=0..1000000、records<=1000000非空；每行id/age/postal/category。
 id唯一，age整数0..120，postal恰5位ASCII数字（保留前导0），category非空文本<=128字符。
 id只用于拒绝重复输入，不出现在发布记录/类别报告中；原输入文件仍由调用者保留，不被销毁。
 
@@ -25,3 +25,10 @@ fixture选age_level1/postal_level1、cost1/2，保留4行两组（20-29/123**、
 群体的连续发布（私有id跨轮连接、历史标签序列联合分组、SQLite私有台账与崩溃可恢复的发布
 协议、唯一批次号重放/冲突语义）见 [serial_release.md](serial_release.md)，其输入仍完全
 遵循本契约，单次入口与输出结构保持兼容。
+
+单次入口以流式架构实现（v1.1）：源JSON可达1 GiB、records可达一百万行，增量解析、SQLite
+磁盘中间层与流式报告取代整表驻留，256 MiB地址空间内可完成；records可先于参数出现，重复键、
+未知字段、非有限数、布尔年龄、重复id拒绝语义与尾随垃圾处理保持不变，源字节SHA256随结果
+保留。九候选、抑制数、可行性、类别计数与排序与内存参考实现model.analyze逐字段一致。
+架构、失败模型与测量方法见 [streaming.md](streaming.md)。连续发布入口及其限额
+（8 MB / 10000行 / 预算10000）不变。
