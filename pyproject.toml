@@ -3,12 +3,13 @@ requires = ["setuptools==80.9.0", "wheel==0.45.1"]
 build-backend = "setuptools.build_meta"
 [project]
 name = "data-qd-124"
-version = "0.3.0"
+version = "0.4.0"
 description = "Global recoding search for k-anonymous synthetic tables"
 requires-python = ">=3.11"
 dependencies = []
 [project.scripts]
 table-privacy = "table_privacy.cli:main"
 table-privacy-series = "table_privacy.series_cli:main"
+table-privacy-linkage = "table_privacy.linkage_cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]

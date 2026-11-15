@@ -26,6 +26,12 @@ fixture选age_level1/postal_level1、cost1/2，保留4行两组（20-29/123**、
 协议、唯一批次号重放/冲突语义）见 [serial_release.md](serial_release.md)，其输入仍完全
 遵循本契约，单次入口与输出结构保持兼容。
 
+在单次入口产生的**公开报告**之外，还存在一个独立的关联风险审计入口
+`table-privacy-linkage`：它把一份 schema-1 公开报告与合成辅助身份 JSON 数组
+（`id/age_min/age_max/postal_prefix`）导入私有 SQLite 审计库，以公开计数为容量槽做
+满匹配分析，输出强制暴露、不可用兼容边与 Hall 证据；它不读取本契约的私有源表，也不读取
+连续发布台账。假设、相交语义与表结构见 [linkage_audit.md](linkage_audit.md)。
+
 单次入口以流式架构实现（v1.1）：源JSON可达1 GiB、records可达一百万行，增量解析、SQLite
 磁盘中间层与流式报告取代整表驻留，256 MiB地址空间内可完成；records可先于参数出现，重复键、
 未知字段、非有限数、布尔年龄、重复id拒绝语义与尾随垃圾处理保持不变，源字节SHA256随结果

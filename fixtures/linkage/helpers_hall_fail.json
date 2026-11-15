@@ -1,0 +1,26 @@
+[
+  {
+    "age_max": 39,
+    "age_min": 30,
+    "id": "X1",
+    "postal_prefix": "555"
+  },
+  {
+    "age_max": 30,
+    "age_min": 30,
+    "id": "X2",
+    "postal_prefix": "555"
+  },
+  {
+    "age_max": 39,
+    "age_min": 39,
+    "id": "X3",
+    "postal_prefix": "555"
+  },
+  {
+    "age_max": 33,
+    "age_min": 32,
+    "id": "X4",
+    "postal_prefix": "55500"
+  }
+]

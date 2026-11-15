@@ -1,0 +1,125 @@
+{
+  "result": {
+    "candidates": [
+      {
+        "age_level": 0,
+        "feasible": false,
+        "ordinal_generalization_cost": "0",
+        "postal_level": 0,
+        "suppressed": 4
+      },
+      {
+        "age_level": 0,
+        "feasible": false,
+        "ordinal_generalization_cost": "1/4",
+        "postal_level": 1,
+        "suppressed": 4
+      },
+      {
+        "age_level": 0,
+        "feasible": false,
+        "ordinal_generalization_cost": "1/2",
+        "postal_level": 2,
+        "suppressed": 4
+      },
+      {
+        "age_level": 1,
+        "feasible": false,
+        "ordinal_generalization_cost": "1/4",
+        "postal_level": 0,
+        "suppressed": 4
+      },
+      {
+        "age_level": 1,
+        "feasible": true,
+        "ordinal_generalization_cost": "1/2",
+        "postal_level": 1,
+        "suppressed": 0
+      },
+      {
+        "age_level": 1,
+        "feasible": true,
+        "ordinal_generalization_cost": "3/4",
+        "postal_level": 2,
+        "suppressed": 0
+      },
+      {
+        "age_level": 2,
+        "feasible": false,
+        "ordinal_generalization_cost": "1/2",
+        "postal_level": 0,
+        "suppressed": 4
+      },
+      {
+        "age_level": 2,
+        "feasible": true,
+        "ordinal_generalization_cost": "3/4",
+        "postal_level": 1,
+        "suppressed": 0
+      },
+      {
+        "age_level": 2,
+        "feasible": true,
+        "ordinal_generalization_cost": "1",
+        "postal_level": 2,
+        "suppressed": 0
+      }
+    ],
+    "equivalence_classes": [
+      {
+        "age": "30-39",
+        "category_counts": {
+          "green": 1,
+          "red": 1
+        },
+        "distinct_categories": 2,
+        "postal": "555**",
+        "size": 2
+      },
+      {
+        "age": "80-89",
+        "category_counts": {
+          "blue": 2
+        },
+        "distinct_categories": 1,
+        "postal": "777**",
+        "size": 2
+      }
+    ],
+    "feasible": true,
+    "input_rows": 4,
+    "k": 2,
+    "privacy_scope": "k-anonymity applies only to the selected age/postal quasi-identifiers in this release; this is not a privacy guarantee.",
+    "released_count": 4,
+    "released_rows": [
+      {
+        "age": "30-39",
+        "category": "green",
+        "postal": "555**"
+      },
+      {
+        "age": "30-39",
+        "category": "red",
+        "postal": "555**"
+      },
+      {
+        "age": "80-89",
+        "category": "blue",
+        "postal": "777**"
+      },
+      {
+        "age": "80-89",
+        "category": "blue",
+        "postal": "777**"
+      }
+    ],
+    "selected": {
+      "age_level": 1,
+      "ordinal_generalization_cost": "1/2",
+      "postal_level": 1
+    },
+    "suppressed_rows": 0
+  },
+  "schema_version": 1,
+  "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+}

@@ -1,0 +1,26 @@
+[
+  {
+    "age_max": 29,
+    "age_min": 20,
+    "id": "H1",
+    "postal_prefix": "12345"
+  },
+  {
+    "age_max": 29,
+    "age_min": 20,
+    "id": "H2",
+    "postal_prefix": "12345"
+  },
+  {
+    "age_max": 50,
+    "age_min": 40,
+    "id": "H3",
+    "postal_prefix": "98765"
+  },
+  {
+    "age_max": 46,
+    "age_min": 44,
+    "id": "H4",
+    "postal_prefix": "98765"
+  }
+]

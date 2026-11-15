@@ -1,0 +1,14 @@
+[
+  {
+    "age_max": 120,
+    "age_min": 0,
+    "id": "A",
+    "postal_prefix": ""
+  },
+  {
+    "age_max": 120,
+    "age_min": 0,
+    "id": "B",
+    "postal_prefix": ""
+  }
+]

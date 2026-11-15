@@ -41,6 +41,31 @@ python3 -m venv .venv
 本地已有wheel时，安装构建工具可加 `--no-index --find-links <公共wheel缓存目录>`。
 修改源码后重新安装。本仓不共享其他仓环境，不依赖Docker、外部账号或持续服务。
 
+### 关联风险审计（v3）
+
+第三个入口 `table-privacy-linkage` 把**单次公开 schema-1 报告**与一份**合成辅助
+身份 JSON 数组**（`id/age_min/age_max/postal_prefix`）导入**私有 SQLite 审计库**。
+它不读私有源表，也不读 series 台账；辅助表被假设恰好覆盖全部已发布身份且 id 唯一，
+辅助行数与已发布容量不一致按非法输入拒绝（退出 2、保旧库），不猜概率。
+
+```sh
+.venv/bin/table-privacy-linkage \
+  --report run/public/round1.json \
+  --helpers fixtures/linkage/helpers_forced.json \
+  --audit-db run/private/linkage_audit.sqlite
+```
+
+公开 `(age,postal,category)` 计数作为容量槽（重复槽位不展开）；辅助年龄区间与邮编
+前缀同时与桶标签相交才连边，category 不参与连边。在“每人恰配一槽、所有容量恰满”
+的满匹配空间上，以一次 Dinic 最大流加一次残量 SCC 判定每条兼容边是否可进入某个
+满匹配，并求每人跨全部满匹配的可能 category 集合：仅一种时记强制暴露；无满匹配记
+`inconsistent` 并保存 Hall 证据（身份集合、邻接槽联合容量与缺口）。支持 2000 身份、
+2 万兼容边，不枚举匹配、不逐边重求解；小图以回溯穷举（测试内展开槽位副本）逐边、
+逐身份对照。审计库在完整求解后于单事务内写入双源 SHA、容量槽、兼容边、可能类别与
+证据；stdout 只输出无 id 的聚合摘要。威胁假设、标签相交语义（含年龄 120、`*`、
+前导零）与表结构见 [关联风险审计设计](docs/linkage_audit.md)，自制样例在
+`fixtures/linkage/`（生成脚本 `scripts/build_linkage_fixtures.py`）。
+
 输入JSON最多1 GiB、records最多一百万行、max_suppressed最多一百万、k最多一万；拒绝重复键、
 非有限数值和未定义字段；源字节SHA256随结果保留。单次入口为流式架构：增量解析（records可
 先于参数）、SQLite磁盘中间层、流式报告，256 MiB地址空间内可处理源与报告都超过内存的输入，
@@ -55,7 +80,8 @@ python3 -m venv .venv
 src/table_privacy/model.py 为业务模型（内存参考实现与共享输入校验），generalize.py 构建
 泛化桶；streamjson.py 增量解析契约输入，engine.py 以SQLite磁盘中间层与流式报告执行单次
 发布，cli.py 为单次入口；series.py 实现跨轮联合分组、SQLite台账与持久发布协议，
-series_cli.py 为连续发布入口；common.py 提供受限JSON及报告发布。
+series_cli.py 为连续发布入口；linkage.py 实现公开报告×辅助身份的容量槽匹配、Hall
+证据与审计库写入，linkage_cli.py 为关联风险审计入口；common.py 提供受限JSON及报告发布。
 fixtures 为明确自制样例，代码与样例采用MIT许可。
 
 ## 业务与样例结果
